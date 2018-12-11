@@ -50,7 +50,6 @@
 (defun ssl-initialized-p ()
   (and *ssl-global-context* *ssl-global-method*))
 
-
 ;;; Constants
 ;;;
 (defconstant +ssl-filetype-pem+ 1)
@@ -139,6 +138,41 @@ session-resume requests) would normally be copied into the local cache before pr
 (cffi:defctype ssl-method :pointer)
 (cffi:defctype ssl-ctx :pointer)
 (cffi:defctype ssl-pointer :pointer)
+
+
+(defvar *openssl-version* (setup-openssl-version)
+  "The version of OpenSSL that is active.")
+
+(defun setup-openssl-version ()
+  (setf *openssl-version*
+        (or (ignore-errors (openssl-version-num))
+            (ignore-errors (ssl-eay))
+            (error "No OpenSSL version number could be determined."))))
+
+(define-ssl-function ("SSLeay" ssl-eay)
+    :long)
+(define-ssl-function ("OpenSSL_version_num" openssl-version-num)
+    :long)
+
+(defun openssl-version (major minor &optional (patch 0) (prerelease))
+  "Builds a version number to compare OpenSSL against.
+  Note: the _really_ old formats (<= 0.9.4) are not supported."
+  (declare (type (integer 0 3) major)
+           (type (integer 0 10) minor)
+           (type (integer 0 20) patch))
+  (logior (ash major 28)
+          (ash minor 20)
+          (ash patch 4)
+          (if prerelease #xf #x0)))
+
+(defun openssl-is-at-least (major minor &optional (patch 0) (prerelease))
+  (>= *openssl-version*
+      (openssl-version major minor patch prerelease)))
+
+(defun openssl-is-not-even (major minor &optional (patch 0) (prerelease))
+  (< *openssl-version*
+     (openssl-version major minor patch prerelease)))
+
 
 (define-ssl-function ("SSL_get_version" ssl-get-version)
     :string
@@ -755,6 +789,7 @@ Use the (MAKE-SSL-CLIENT-STREAM .. :VERIFY ?) to enable/disable verification.
 MAKE-CONTEXT also allows to enab/disable verification.")
 
 (defun initialize (&key (method 'ssl-v23-method) rand-seed)
+  (setup-openssl-version)
   (setf *locks* (loop
        repeat (crypto-num-locks)
        collect (bt:make-lock)))
@@ -819,6 +854,7 @@ context and in particular the loaded certificate chain."
     (cffi:use-foreign-library libcrypto)
     (cffi:load-foreign-library 'libssl)
     (cffi:load-foreign-library 'libeay32))
+  (setup-openssl-version)
   (setf *ssl-global-context* nil)
   (setf *ssl-global-method* nil)
   (setf *tmp-rsa-key-512* nil)
