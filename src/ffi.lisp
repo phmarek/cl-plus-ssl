@@ -181,6 +181,10 @@ session-resume requests) would normally be copied into the local cache before pr
     :void)
 (define-ssl-function ("SSL_library_init" ssl-library-init)
     :int)
+(define-ssl-function ("OPENSSL_init_ssl" openssl-init-ssl)
+    :int
+  (opts :uint64)
+  (settings :pointer))
 ;;
 ;; We don't refer SSLv2_client_method as the default
 ;; builds of OpenSSL do not have it, due to insecurity
@@ -798,14 +802,22 @@ MAKE-CONTEXT also allows to enab/disable verification.")
 
 (defun initialize (&key method rand-seed)
   (setup-openssl-version)
-  (setf *locks* (loop
-       repeat (crypto-num-locks)
-       collect (bt:make-lock)))
-  (crypto-set-locking-callback (cffi:callback locking-callback))
-  (crypto-set-id-callback (cffi:callback threadid-callback))
+  ;; Vanished in OpenSSL_1_1_0-pre3-504-g2e52e7df51
+  (when (openssl-is-not-even 1 1)
+    (setf *locks* (loop
+                    repeat (crypto-num-locks)
+                    collect (bt:make-lock)))
+    (crypto-set-locking-callback (cffi:callback locking-callback))
+    (crypto-set-id-callback (cffi:callback threadid-callback))
+    (ssl-load-error-strings))
   (setf *bio-lisp-method* (make-bio-lisp-method))
-  (ssl-load-error-strings)
-  (ssl-library-init)
+  ;; changed in OpenSSL_1_1_0-pre3-504-g2e52e7df51
+  (if (openssl-is-at-least 1 1)
+    ;; TODO: check for success?
+    (openssl-init-ssl (logior #x00200000   ; OPENSSL_INIT_LOAD_SSL_STRINGS
+                              #x00000002)  ; OPENSSL_INIT_LOAD_CRYPTO_STRINGS    
+                      (cffi:null-pointer))
+    (ssl-library-init))
   (when rand-seed
     (init-prng rand-seed))
   (setf *ssl-check-verify-p* :unspecified)
@@ -816,8 +828,10 @@ MAKE-CONTEXT also allows to enab/disable verification.")
   (ssl-ctx-set-session-cache-mode *ssl-global-context* 3)
   (ssl-ctx-set-default-passwd-cb *ssl-global-context*
                                  (cffi:callback pem-password-callback))
-  (ssl-ctx-set-tmp-rsa-callback *ssl-global-context*
-                                (cffi:callback tmp-rsa-callback)))
+  ;; Vanished in OpenSSL_1_1_0-pre5-814-gfb5b14b420
+  (if (openssl-is-not-even 1 1)
+    (ssl-ctx-set-tmp-rsa-callback *ssl-global-context*
+                                  (cffi:callback tmp-rsa-callback))))
 
 (defun ensure-initialized (&key method (rand-seed nil))
   "In most cases you do *not* need to call this function, because it
