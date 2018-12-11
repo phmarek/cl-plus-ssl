@@ -140,7 +140,7 @@ session-resume requests) would normally be copied into the local cache before pr
 (cffi:defctype ssl-pointer :pointer)
 
 
-(defvar *openssl-version* (setup-openssl-version)
+(defvar *openssl-version* nil
   "The version of OpenSSL that is active.")
 
 (defun setup-openssl-version ()
@@ -192,6 +192,8 @@ session-resume requests) would normally be copied into the local cache before pr
 (define-ssl-function ("SSLv23_client_method" ssl-v23-client-method)
     ssl-method)
 (define-ssl-function ("SSLv23_server_method" ssl-v23-server-method)
+    ssl-method)
+(define-ssl-function ("TLS_method" tls-method)
     ssl-method)
 (define-ssl-function ("SSLv23_method" ssl-v23-method)
     ssl-method)
@@ -788,7 +790,13 @@ will use this value.")
 Use the (MAKE-SSL-CLIENT-STREAM .. :VERIFY ?) to enable/disable verification.
 MAKE-CONTEXT also allows to enab/disable verification.")
 
-(defun initialize (&key (method 'ssl-v23-method) rand-seed)
+(defun default-ssl-method ()
+  (if (openssl-is-at-least 1 1)
+    'tls-method
+    'ssl-v23-method))
+
+
+(defun initialize (&key method rand-seed)
   (setup-openssl-version)
   (setf *locks* (loop
        repeat (crypto-num-locks)
@@ -801,7 +809,7 @@ MAKE-CONTEXT also allows to enab/disable verification.")
   (when rand-seed
     (init-prng rand-seed))
   (setf *ssl-check-verify-p* :unspecified)
-  (setf *ssl-global-method* (funcall method))
+  (setf *ssl-global-method* (funcall (or method (default-ssl-method))))
   (setf *ssl-global-context* (ssl-ctx-new *ssl-global-method*))
   (unless (eql 1 (ssl-ctx-set-default-verify-paths *ssl-global-context*))
     (error "ssl-ctx-set-default-verify-paths failed."))
@@ -811,7 +819,7 @@ MAKE-CONTEXT also allows to enab/disable verification.")
   (ssl-ctx-set-tmp-rsa-callback *ssl-global-context*
                                 (cffi:callback tmp-rsa-callback)))
 
-(defun ensure-initialized (&key (method 'ssl-v23-method) (rand-seed nil))
+(defun ensure-initialized (&key method (rand-seed nil))
   "In most cases you do *not* need to call this function, because it
 is called automatically by all other functions. The only reason to
 call it explicitly is to supply the RAND-SEED parameter. In this case
