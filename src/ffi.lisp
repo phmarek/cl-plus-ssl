@@ -800,7 +800,7 @@ MAKE-CONTEXT also allows to enab/disable verification.")
     'ssl-v23-method))
 
 
-(defun initialize (&key method rand-seed)
+(defun initialize (&key method rand-seed context-options)
   (setup-openssl-version)
   ;; Vanished in OpenSSL_1_1_0-pre3-504-g2e52e7df51
   (when (openssl-is-not-even 1 1)
@@ -822,7 +822,8 @@ MAKE-CONTEXT also allows to enab/disable verification.")
     (init-prng rand-seed))
   (setf *ssl-check-verify-p* :unspecified)
   (setf *ssl-global-method* (funcall (or method (default-ssl-method))))
-  (setf *ssl-global-context* (ssl-ctx-new *ssl-global-method*))
+  (setf *ssl-global-context* (or (apply #'make-context context-options)
+                                 (ssl-ctx-new *ssl-global-method*)))
   (unless (eql 1 (ssl-ctx-set-default-verify-paths *ssl-global-context*))
     (error "ssl-ctx-set-default-verify-paths failed."))
   (ssl-ctx-set-session-cache-mode *ssl-global-context* 3)
@@ -833,7 +834,7 @@ MAKE-CONTEXT also allows to enab/disable verification.")
     (ssl-ctx-set-tmp-rsa-callback *ssl-global-context*
                                   (cffi:callback tmp-rsa-callback))))
 
-(defun ensure-initialized (&key method (rand-seed nil))
+(defun ensure-initialized (&key method (rand-seed nil) context-options)
   "In most cases you do *not* need to call this function, because it
 is called automatically by all other functions. The only reason to
 call it explicitly is to supply the RAND-SEED parameter. In this case
@@ -854,7 +855,8 @@ because the function usually returns predictable values."
   (check-cl+ssl-symbols)
   (bordeaux-threads:with-recursive-lock-held (*global-lock*)
     (unless (ssl-initialized-p)
-      (initialize :method method :rand-seed rand-seed))
+      (initialize :method method :rand-seed rand-seed
+                  :context-options context-options))
     (unless *bio-lisp-method*
       (setf *bio-lisp-method* (make-bio-lisp-method)))))
 

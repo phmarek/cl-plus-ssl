@@ -90,7 +90,6 @@
                           (verify-callback nil verify-callback-supplied-p)
                           (cipher-list +default-cipher-list+)
                           (pem-password-callback 'pem-password-callback))
-  (ensure-initialized)
   (let ((ctx (ssl-ctx-new (if method-supplied-p
                               method
                               (progn
