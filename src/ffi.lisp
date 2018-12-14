@@ -498,10 +498,19 @@ session-resume requests) would normally be copied into the local cache before pr
   (type :int)
   (data :pointer))
 
+(define-crypto-function ("OPENSSL_sk_value" openssl-sk-value)
+    :pointer
+  (stack :pointer)
+  (index :int))
+
 (define-crypto-function ("sk_value" sk-value)
     :pointer
   (stack :pointer)
   (index :int))
+
+(define-crypto-function ("OPENSSL_sk_num" openssl-sk-num)
+    :int
+  (stack :pointer))
 
 (define-crypto-function ("sk_num" sk-num)
     :int
@@ -509,11 +518,15 @@ session-resume requests) would normally be copied into the local cache before pr
 
 (declaim (ftype (function (cffi:foreign-pointer fixnum) cffi:foreign-pointer) sk-general-name-value))
 (defun sk-general-name-value (names index)
-  (sk-value names index))
+  (if (openssl-is-at-least 1 1)
+    (openssl-sk-value names index)
+    (sk-value names index)))
 
 (declaim (ftype (function (cffi:foreign-pointer) fixnum) sk-general-name-num))
 (defun sk-general-name-num (names)
-  (sk-num names))
+  (if (openssl-is-at-least 1 1)
+    (openssl-sk-num names)
+    (sk-num names)))
 
 (define-crypto-function ("GENERAL_NAMES_free" general-names-free)
     :void
