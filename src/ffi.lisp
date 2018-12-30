@@ -14,6 +14,7 @@
 
 (in-package :cl+ssl)
 
+
 ;;; Code for checking that we got the correct foreign symbols right.
 ;;; Implemented only for LispWorks for now.
 (defvar *cl+ssl-ssl-foreign-function-names* nil)
@@ -27,15 +28,51 @@
     (when (fli:null-pointer-p (fli:make-pointer :symbol-name crypto-symbol :module 'libcrypto :errorp nil))
       (format *error-output* "Symbol ~s undefined~%" crypto-symbol))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  ;
+  (defvar *cl+ssl-ffi-functions* (make-hash-table :test #'eq)
+    "Hash table of all possibly used OpenSSL functions, indexed by their
+    lisp symbol.")
+  ;
+  (defun %not-implemented (&rest rest)
+    (declare (ignore rest))
+    (error "Not implemented/not available with the currently loaded libraries"))
+  ;
+  (defun register-ffi-function (name-and-options lib body)
+    (declare (type list name-and-options))
+    (let* ((lisp-name (find-if #'symbolp name-and-options))
+           (lib-name (find-if #'stringp name-and-options))
+           (options (nthcdr 2 name-and-options))
+           (v-at-least (getf options :>=))
+           (v-less-than (getf options :<)))
+      (alexandria:remove-from-plistf options 
+                                     :>= :<)
+      ;; Provide a preliminary function
+      (setf (symbol-function lisp-name)
+            (symbol-function '%not-implemented))
+      ;;
+      (setf (gethash lisp-name *cl+ssl-ffi-functions*)
+            `(:lisp-name ,lisp-name 
+              :lib-name ,lib-name
+              :library ,lib
+              :options ,options
+              ,@ (if v-at-least
+                   `(:v-at-least , v-at-least))
+              ,@ (if v-less-than
+                   `(:v-less-than , v-less-than))
+              :body ,body)))))
+
 (defmacro define-ssl-function (name-and-options &body body)
   `(progn
      (pushnew  ,(car name-and-options)  *cl+ssl-ssl-foreign-function-names* :test 'equal) ; debugging
-     (cffi:defcfun ,(append name-and-options '(:library libssl)) ,@body)))
+     (eval-when (:compile-toplevel :load-toplevel :execute)
+       (register-ffi-function ',name-and-options 'libssl ',body))))
 
 (defmacro define-crypto-function (name-and-options &body body)
   `(progn
      (pushnew  ,(car name-and-options)  *cl+ssl-crypto-foreign-function-names* :test 'equal) ; debugging
-     (cffi:defcfun ,(append name-and-options #+(and lispworks darwin) '(:library libcrypto)) ,@body)))
+     (eval-when (:compile-toplevel :load-toplevel :execute)
+       (register-ffi-function ',name-and-options 'libcrypto ',body))))
 
 
 ;;; Global state
@@ -142,17 +179,24 @@ session-resume requests) would normally be copied into the local cache before pr
 
 (defvar *openssl-version* nil
   "The version of OpenSSL that is active.")
+;; Restrict to 1.0 to 1.1.x for now
+(declaim (type (or null (integer #x10000000 #x101f0000))
+               *openssl-version*))
 
-(defun setup-openssl-version ()
-  (setf *openssl-version*
-        (or (ignore-errors (openssl-version-num))
-            (ignore-errors (ssl-eay))
-            (error "No OpenSSL version number could be determined."))))
 
-(define-ssl-function ("SSLeay" ssl-eay)
-    :long)
-(define-ssl-function ("OpenSSL_version_num" openssl-version-num)
-    :long)
+(defun protected-defcfun (lib-name lisp-sym library options return-and-args)
+  ;; Get a function binding
+  (setf (symbol-function lisp-sym)
+        (symbol-function '%not-implemented))
+  (multiple-value-bind (result error)
+      (eval `(ignore-errors 
+               (cffi:defcfun (,lib-name ,lisp-sym 
+                              :library ,library ,@ options)
+                   ,@ return-and-args)))
+    (if error
+      (values nil error)
+      (or result t))))
+
 
 (defun openssl-version (major minor &optional (patch 0) (prerelease))
   "Builds a version number to compare OpenSSL against.
@@ -169,7 +213,7 @@ session-resume requests) would normally be copied into the local cache before pr
   (>= *openssl-version*
       (openssl-version major minor patch prerelease)))
 
-(defun openssl-is-not-even (major minor &optional (patch 0) (prerelease))
+(defun openssl-is-earlier-than (major minor &optional (patch 0) (prerelease))
   (< *openssl-version*
      (openssl-version major minor patch prerelease)))
 
@@ -179,9 +223,9 @@ session-resume requests) would normally be copied into the local cache before pr
   (ssl ssl-pointer))
 (define-ssl-function ("SSL_load_error_strings" ssl-load-error-strings)
     :void)
-(define-ssl-function ("SSL_library_init" ssl-library-init)
+(define-ssl-function ("SSL_library_init" ssl-library-init :< (1 1))
     :int)
-(define-ssl-function ("OPENSSL_init_ssl" openssl-init-ssl)
+(define-ssl-function ("OPENSSL_init_ssl" openssl-init-ssl :>= (1 1))
     :int
   (opts :uint64)
   (settings :pointer))
@@ -384,8 +428,8 @@ session-resume requests) would normally be copied into the local cache before pr
   (ctx ssl-ctx)
   (pem_passwd_cb :pointer))
 
-(define-crypto-function ("CRYPTO_num_locks" crypto-num-locks) :int)
-(define-crypto-function ("CRYPTO_set_locking_callback" crypto-set-locking-callback)
+(define-crypto-function ("CRYPTO_num_locks" crypto-num-locks :< (1 1)) :int)
+(define-crypto-function ("CRYPTO_set_locking_callback" crypto-set-locking-callback :< (1 1))
     :void
   (fun :pointer))
 (define-crypto-function ("CRYPTO_set_id_callback" crypto-set-id-callback)
@@ -567,7 +611,7 @@ session-resume requests) would normally be copied into the local cache before pr
     :void
   (rsa :pointer))
 
-(define-ssl-function ("SSL_CTX_set_tmp_rsa_callback" ssl-ctx-set-tmp-rsa-callback)
+(define-ssl-function ("SSL_CTX_set_tmp_rsa_callback" ssl-ctx-set-tmp-rsa-callback :< (1 1))
     :pointer
   (ctx :pointer)
   (callback :pointer))
@@ -820,10 +864,55 @@ MAKE-CONTEXT also allows to enab/disable verification.")
     'ssl-v23-method))
 
 
+(defun init-functions (fn-list)
+  (dolist (fn fn-list)
+    (destructuring-bind (&key lisp-name lib-name library options body
+                              v-less-than v-at-least) fn
+      (cond
+        ((and v-less-than
+              (apply #'openssl-is-at-least v-less-than))
+         ;; too new
+         (format *trace-output* "~s skipped because < ~s (too new)~%"
+                 lib-name v-less-than))
+        ((and v-at-least
+              (apply #'openssl-is-earlier-than v-at-least))
+         ;; too old
+         (format *trace-output* "~s) skipped because >= ~s (too old)~%"
+                 lib-name v-at-least))
+        (T
+         (protected-defcfun lib-name lisp-name library options
+                            body))))))
+
+
+;; Make the compiler happy
+(defun ssl-eay () nil)
+(defun openssl-version-num () nil)
+
 (defun initialize (&key method rand-seed context-options)
-  (setup-openssl-version)
+  ;; At this point, some OpenSSL library is already loaded.
+  ;; Try to find out which version we have.
+  (setf *openssl-version* nil)
+  (reload)
+  (multiple-value-bind (fn s-l-errord)
+      (protected-defcfun "SSLeay" 'ssl-eay 'libssl ()
+                         '(:long))
+    (declare (ignore fn))
+    (unless s-l-errord
+      (setf *openssl-version* (ignore-errors (ssl-eay)))))
+  (multiple-value-bind (fn o-v-n-errord)
+      (protected-defcfun "OpenSSL_version_num" 'openssl-version-num 'libssl ()
+                         '(:long))
+    (declare (ignore fn))
+    (unless o-v-n-errord
+      (setf *openssl-version* (ignore-errors (openssl-version-num)))))
+  (if (not *openssl-version*)
+    (error "Cannot determine OpenSSL version number, sorry."))
+  ;;
+  ;; Define the other OpenSSL functions
+  (init-functions (alexandria:hash-table-values *cl+ssl-ffi-functions*)) 
+  ;;
   ;; Vanished in OpenSSL_1_1_0-pre3-504-g2e52e7df51
-  (when (openssl-is-not-even 1 1)
+  (when (openssl-is-earlier-than 1 1)
     (setf *locks* (loop
                     repeat (crypto-num-locks)
                     collect (bt:make-lock)))
@@ -855,7 +944,7 @@ MAKE-CONTEXT also allows to enab/disable verification.")
   (ssl-ctx-set-default-passwd-cb *ssl-global-context*
                                  (cffi:callback pem-password-callback))
   ;; Vanished in OpenSSL_1_1_0-pre5-814-gfb5b14b420
-  (if (openssl-is-not-even 1 1)
+  (if (openssl-is-earlier-than 1 1)
     (ssl-ctx-set-tmp-rsa-callback *ssl-global-context*
                                   (cffi:callback tmp-rsa-callback))))
 
@@ -903,7 +992,7 @@ context and in particular the loaded certificate chain."
     (cffi:use-foreign-library libcrypto)
     (cffi:load-foreign-library 'libssl)
     (cffi:load-foreign-library 'libeay32))
-  (setup-openssl-version)
+;  (setup-openssl-version)
   (setf *ssl-global-context* nil)
   (setf *ssl-global-method* nil)
   (setf *tmp-rsa-key-512* nil)
