@@ -572,6 +572,13 @@ session-resume requests) would normally be copied into the local cache before pr
   (ctx :pointer)
   (callback :pointer))
 
+(define-ssl-function ("SSL_CTX_set_session_id_context" ssl-ctx-set-session-id-context)
+    :int
+  (ctx :pointer)
+  (s-id :pointer)
+  (s-id-len :int))
+
+
 (cffi:defcallback tmp-rsa-callback :pointer ((ssl :pointer) (export-p :int) (key-length :int))
   (declare (ignore ssl export-p))
   (flet ((rsa-key (length)
@@ -839,6 +846,11 @@ MAKE-CONTEXT also allows to enab/disable verification.")
                                  (ssl-ctx-new *ssl-global-method*)))
   (unless (eql 1 (ssl-ctx-set-default-verify-paths *ssl-global-context*))
     (error "ssl-ctx-set-default-verify-paths failed."))
+  ;; "session id context uninitialized"
+  ;; See eg. https://github.com/netty/netty/pull/5321
+  (cffi:with-foreign-string ((stg size) "cl+ssl")
+    (ssl-ctx-set-session-id-context *ssl-global-context*
+                                    stg size))
   (ssl-ctx-set-session-cache-mode *ssl-global-context* 3)
   (ssl-ctx-set-default-passwd-cb *ssl-global-context*
                                  (cffi:callback pem-password-callback))
