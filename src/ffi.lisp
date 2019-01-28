@@ -910,6 +910,7 @@ MAKE-CONTEXT also allows to enab/disable verification.")
   ;;
   ;; Define the other OpenSSL functions
   (init-functions (alexandria:hash-table-values *cl+ssl-ffi-functions*)) 
+  (openssl-init-ssl)
   ;;
   ;; Vanished in OpenSSL_1_1_0-pre3-504-g2e52e7df51
   (when (openssl-is-earlier-than 1 1)
