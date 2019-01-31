@@ -34,10 +34,6 @@
     "Hash table of all possibly used OpenSSL functions, indexed by their
     lisp symbol.")
   ;
-  (defun %not-implemented (&rest rest)
-    (declare (ignore rest))
-    (error "Not implemented/not available with the currently loaded libraries"))
-  ;
   (defun register-ffi-function (name-and-options lib body)
     (declare (type list name-and-options))
     (let* ((lisp-name (find-if #'symbolp name-and-options))
@@ -49,7 +45,7 @@
                                      :>= :<)
       ;; Provide a preliminary function
       (setf (symbol-function lisp-name)
-            (symbol-function '%not-implemented))
+            (function-not-implemented lisp-name))
       ;;
       (setf (gethash lisp-name *cl+ssl-ffi-functions*)
             `(:lisp-name ,lisp-name 
@@ -184,10 +180,16 @@ session-resume requests) would normally be copied into the local cache before pr
                *openssl-version*))
 
 
+(defun function-not-implemented (name)
+  (lambda (&rest rest)
+    (declare (ignore rest))
+    (error "~s is not implemented/not available with the currently loaded libraries")))
+
+
 (defun protected-defcfun (lib-name lisp-sym library options return-and-args)
   ;; Get a function binding
   (setf (symbol-function lisp-sym)
-        (symbol-function '%not-implemented))
+        (function-not-implemented lisp-sym))
   (multiple-value-bind (result error)
       (eval `(ignore-errors 
                (cffi:defcfun (,lib-name ,lisp-sym 
