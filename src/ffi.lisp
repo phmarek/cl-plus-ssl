@@ -50,8 +50,9 @@
       (alexandria:remove-from-plistf options 
                                      :>= :<)
       ;; Provide a preliminary function
-      (setf (symbol-function lisp-name)
-            (function-not-implemented lisp-name))
+      ;; No, we don't do that. Getting rid of the function declaration is hard.
+      ;;      (setf (symbol-function lisp-sym)
+      ;;            (function-not-implemented lisp-sym))
       ;;
       (setf (gethash lisp-name *cl+ssl-ffi-functions*)
             `(:lisp-name ,lisp-name 
@@ -187,16 +188,17 @@ session-resume requests) would normally be copied into the local cache before pr
 
 
 (defun protected-defcfun (lib-name lisp-sym library options return-and-args)
-  ;; Get a function binding
-  (setf (symbol-function lisp-sym)
-        (function-not-implemented lisp-sym))
   (multiple-value-bind (result error)
       (eval `(ignore-errors 
+               ;;    This doesn't seem to declare the function type correctly -- and so breaks things
                (cffi:defcfun (,lib-name ,lisp-sym 
                               :library ,library ,@ options)
                    ,@ return-and-args)))
     (if error
-      (values nil error)
+      (progn
+        (setf (symbol-function lisp-sym)
+              (function-not-implemented lisp-sym))
+        (values nil error))
       (or result t))))
 
 
