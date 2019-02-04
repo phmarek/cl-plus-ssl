@@ -869,6 +869,25 @@ MAKE-CONTEXT also allows to enab/disable verification.")
 
 
 (defun init-functions (fn-list)
+  ;; At this point, some OpenSSL library is already loaded.
+  ;; Try to find out which version we have.
+  (setf *openssl-version* nil)
+  ;;
+  (multiple-value-bind (fn s-l-errord)
+      (protected-defcfun "SSLeay" 'ssl-eay 'libssl ()
+                         '(:long))
+    (declare (ignore fn))
+    (unless s-l-errord
+      (setf *openssl-version* (ignore-errors (ssl-eay)))))
+  (multiple-value-bind (fn o-v-n-errord)
+      (protected-defcfun "OpenSSL_version_num" 'openssl-version-num 'libssl ()
+                         '(:long))
+    (declare (ignore fn))
+    (unless o-v-n-errord
+      (setf *openssl-version* (ignore-errors (openssl-version-num)))))
+  (if (not *openssl-version*)
+    (error "Cannot determine OpenSSL version number, sorry."))
+  ;;
   (dolist (fn fn-list)
     (destructuring-bind (&key lisp-name lib-name library options body
                               v-less-than v-at-least) fn
@@ -887,34 +906,15 @@ MAKE-CONTEXT also allows to enab/disable verification.")
          (protected-defcfun lib-name lisp-name library options
                             body))))))
 
-
 ;; Make the compiler happy
 (defun ssl-eay () nil)
 (defun openssl-version-num () nil)
 
 (defun initialize (&key method rand-seed context-options)
-  ;; At this point, some OpenSSL library is already loaded.
-  ;; Try to find out which version we have.
-  (setf *openssl-version* nil)
   (reload)
-  (multiple-value-bind (fn s-l-errord)
-      (protected-defcfun "SSLeay" 'ssl-eay 'libssl ()
-                         '(:long))
-    (declare (ignore fn))
-    (unless s-l-errord
-      (setf *openssl-version* (ignore-errors (ssl-eay)))))
-  (multiple-value-bind (fn o-v-n-errord)
-      (protected-defcfun "OpenSSL_version_num" 'openssl-version-num 'libssl ()
-                         '(:long))
-    (declare (ignore fn))
-    (unless o-v-n-errord
-      (setf *openssl-version* (ignore-errors (openssl-version-num)))))
-  (if (not *openssl-version*)
-    (error "Cannot determine OpenSSL version number, sorry."))
-  ;;
-  ;; Define the other OpenSSL functions
+  ;; Define the OpenSSL functions
   (init-functions (alexandria:hash-table-values *cl+ssl-ffi-functions*)) 
-  (openssl-init-ssl)
+  (openssl-init-ssl 0 (cffi:null-pointer))
   ;;
   ;; Vanished in OpenSSL_1_1_0-pre3-504-g2e52e7df51
   (when (openssl-is-earlier-than 1 1)
@@ -1003,6 +1003,9 @@ context and in particular the loaded certificate chain."
   (setf *tmp-rsa-key-512* nil)
   (setf *tmp-rsa-key-1024* nil))
 
+
+;; Needed by the x.509 and other functions as well
+(init-functions (alexandria:hash-table-values *cl+ssl-ffi-functions*))
 
 
 (defconstant +TLS1-VERSION+   #x0301)
