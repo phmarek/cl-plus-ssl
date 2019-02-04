@@ -34,6 +34,12 @@
     "Hash table of all possibly used OpenSSL functions, indexed by their
     lisp symbol.")
   ;
+  (defun function-not-implemented (name)
+    (lambda (&rest rest)
+      (declare (ignore rest))
+      (error "~s is not implemented/not available with the currently loaded libraries"
+             name)))
+  ;
   (defun register-ffi-function (name-and-options lib body)
     (declare (type list name-and-options))
     (let* ((lisp-name (find-if #'symbolp name-and-options))
@@ -178,12 +184,6 @@ session-resume requests) would normally be copied into the local cache before pr
 ;; Restrict to 1.0 to 1.1.x for now
 (declaim (type (or null (integer #x10000000 #x101f0000))
                *openssl-version*))
-
-
-(defun function-not-implemented (name)
-  (lambda (&rest rest)
-    (declare (ignore rest))
-    (error "~s is not implemented/not available with the currently loaded libraries")))
 
 
 (defun protected-defcfun (lib-name lisp-sym library options return-and-args)
