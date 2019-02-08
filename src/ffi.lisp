@@ -188,18 +188,20 @@ session-resume requests) would normally be copied into the local cache before pr
 
 
 (defun protected-defcfun (lib-name lisp-sym library options return-and-args)
-  (multiple-value-bind (result error)
-      (eval `(ignore-errors 
-               ;;    This doesn't seem to declare the function type correctly -- and so breaks things
-               (cffi:defcfun (,lib-name ,lisp-sym 
-                              :library ,library ,@ options)
-                   ,@ return-and-args)))
-    (if error
-      (progn
-        (setf (symbol-function lisp-sym)
-              (function-not-implemented lisp-sym))
-        (values nil error))
-      (or result t))))
+  (handler-bind
+      (#+sbcl(sb-kernel:redefinition-warning #'muffle-warning))
+    (multiple-value-bind (result error)
+        (eval `(ignore-errors 
+                 ;;    This doesn't seem to declare the function type correctly -- and so breaks things
+                 (cffi:defcfun (,lib-name ,lisp-sym 
+                                          :library ,library ,@ options)
+                     ,@ return-and-args)))
+      (if error
+        (progn
+          (setf (symbol-function lisp-sym)
+                (function-not-implemented lisp-sym))
+          (values nil error))
+        (or result t)))))
 
 
 (defun openssl-version (major minor &optional (patch 0) (prerelease))
