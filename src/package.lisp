@@ -46,6 +46,13 @@
            #:+ssl-op-no-tlsv1-1+
            #:+ssl-op-no-tlsv1-2+
 
+           #:*min-proto-version*
+           #:+SSL3-VERSION+
+           #:+TLS1-VERSION+
+           #:+TLS1-1-VERSION+
+           #:+TLS1-2-VERSION+
+           #:+TLS1-3-VERSION+
+
            #:+ssl-sess-cache-off+
            #:+ssl-sess-cache-client+
            #:+ssl-sess-cache-server+

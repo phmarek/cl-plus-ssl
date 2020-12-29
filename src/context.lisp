@@ -80,6 +80,8 @@
             AES128-SHA256:~
             AES128-SHA") :test 'equal)
 
+(defvar *min-proto-version* +TLS1-2-VERSION+)
+
 (cffi:defcallback verify-peer-callback :int ((ok :int) (ctx :pointer))
   (let ((error-code (x509-store-ctx-get-error ctx)))
     (unless (= error-code 0)
@@ -89,7 +91,7 @@
 (defun make-context (&key (method nil method-supplied-p)
                           disabled-protocols
                           (options (list +SSL-OP-ALL+))
-                          min-proto-version
+                          (min-proto-version *min-proto-version*)
                           (session-cache-mode +ssl-sess-cache-server+)
                           (verify-location :default)
                           (verify-depth 100)
